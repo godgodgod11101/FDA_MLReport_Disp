@@ -1,0 +1,350 @@
+---
+title: "model building & prediction (bl, seafood)"
+author: "jacky wang"
+date: "2021/6/8"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+
+# package
+
+```{r}
+
+library(readxl)
+library(SOAR)
+
+# tidyverse
+library(readr)
+library(dplyr)
+library(stringr)
+library(purrr)
+library(lubridate)
+
+# machine learning
+library(caret)
+library(ROCR)
+
+# algorithm
+library(e1071)
+library(ranger)
+library(gbm)
+library(glmnet)
+library(C50)
+library(rpart)
+
+# my function
+projAbs <- rprojroot::is_rstudio_project$find_file()    # project絕對路徑
+funName <- dir(file.path(projAbs, "ml_fun/bagging"))    # 函數檔名
+funAbs <- file.path(projAbs, "ml_fun/bagging", funName)    # 函數絕對路徑
+map(funAbs, ~ source(.x))
+rm(projAbs, funName, funAbs)
+cat("\f")
+
+```
+
+
+
+# data import
+
+```{r}
+load(file = "rda_mdlData_sea/sea_trainD_2.Rda")
+load(file = "rda_mdlData_sea/sea_testD_2.Rda")
+```
+
+
+
+# predict
+
+```{r}
+
+a <- Sys.time()
+
+pred_lgs <- map(
+  seq_along(list_trainD_2), 
+  ~{
+    lgsRsl_bagging(
+      trainD = list_trainD_2[[.x]] , testD = list_testD_2[[.x]], 
+      bagTimes = 10
+    )
+  }
+)
+
+b <- Sys.time()
+c <- difftime(b, a, units = "sec") %>% floor() %>% as.numeric()
+glue::glue("耗時約 {c %/% 60} 分 {c %% 60} 秒")
+rm(a, b, c)
+
+```
+
+```{r}
+
+a <- Sys.time()
+
+pred_rpart <- map(
+  seq_along(list_trainD_2), 
+  ~{
+    rpartRsl_bagging(
+      trainD = list_trainD_2[[.x]] , testD = list_testD_2[[.x]], 
+      bagTimes = 10
+    )
+  }
+)
+
+b <- Sys.time()
+c <- difftime(b, a, units = "sec") %>% floor() %>% as.numeric()
+glue::glue("耗時約 {c %/% 60} 分 {c %% 60} 秒")
+rm(a, b, c)
+
+```
+
+```{r}
+
+a <- Sys.time()
+
+pred_c50 <- map(
+  seq_along(list_trainD_2), 
+  ~{
+    c50Rsl_bagging(
+      trainD = list_trainD_2[[.x]] , testD = list_testD_2[[.x]], 
+      bagTimes = 10
+    )
+  }
+)
+
+b <- Sys.time()
+c <- difftime(b, a, units = "sec") %>% floor() %>% as.numeric()
+glue::glue("耗時約 {c %/% 60} 分 {c %% 60} 秒")
+rm(a, b, c)
+
+```
+
+```{r}
+
+a <- Sys.time()
+
+pred_nb <- map(
+  seq_along(list_trainD_2), 
+  ~{
+    nbRsl_bagging(
+      trainD = list_trainD_2[[.x]] , testD = list_testD_2[[.x]], 
+      bagTimes = 10
+    )
+  }
+)
+
+b <- Sys.time()
+c <- difftime(b, a, units = "sec") %>% floor() %>% as.numeric()
+glue::glue("耗時約 {c %/% 60} 分 {c %% 60} 秒")
+rm(a, b, c)
+
+```
+
+```{r}
+
+a <- Sys.time()
+
+pred_rf <- map(
+  seq_along(list_trainD_2), 
+  ~{rfRsl(trainD = list_trainD_2[[.x]] , testD = list_testD_2[[.x]])}
+)
+
+b <- Sys.time()
+c <- difftime(b, a, units = "sec") %>% floor() %>% as.numeric()
+glue::glue("耗時約 {c %/% 60} 分 {c %% 60} 秒")
+rm(a, b, c)
+
+```
+
+```{r}
+
+a <- Sys.time()
+
+pred_gbm <- map(
+  seq_along(list_trainD_2), 
+  ~{gbmRsl(trainD = list_trainD_2[[.x]] , testD = list_testD_2[[.x]])}
+)
+
+b <- Sys.time()
+c <- difftime(b, a, units = "sec") %>% floor() %>% as.numeric()
+glue::glue("耗時約 {c %/% 60} 分 {c %% 60} 秒")
+rm(a, b, c)
+
+```
+
+```{r}
+
+a <- Sys.time()
+
+pred_enet <- map(
+  seq_along(list_trainD_2), 
+  ~{
+    enetRsl_bagging(
+      trainD = list_trainD_2[[.x]] , testD = list_testD_2[[.x]], 
+      bagTimes = 10
+    )
+  }
+)
+
+b <- Sys.time()
+c <- difftime(b, a, units = "sec") %>% floor() %>% as.numeric()
+glue::glue("耗時約 {c %/% 60} 分 {c %% 60} 秒")
+rm(a, b, c)
+
+```
+
+```{r}
+# save(
+#   pred_lgs, pred_rpart, pred_c50, pred_nb, pred_rf, pred_gbm, pred_enet,
+#   file = "rda_result_sea/predSea_ori.Rda"
+# )
+```
+
+```{r}
+
+pred_result <- list()
+
+for (.i in seq_along(pred_rpart)) {
+  
+  pred_result[[.i]] <- data.frame(
+    lgs = pred_lgs[[.i]], 
+    rpart = pred_rpart[[.i]], 
+    c50 = pred_c50[[.i]], 
+    nb = pred_nb[[.i]], 
+    rf = pred_rf[[.i]], 
+    gbm = pred_gbm[[.i]], 
+    enet = pred_enet[[.i]]
+  ) %>% 
+    rowSums() %>% 
+    {ifelse(.>=4, "1", "0")} %>% 
+    factor(levels = c("1", "0"))
+}
+
+rm(pred_lgs, pred_rpart, pred_c50, pred_nb, pred_rf, pred_gbm, pred_enet)
+
+```
+
+```{r}
+# save(pred_result, file = "rda_result_sea/predSea_vote.Rda")
+```
+
+
+
+# result (start here! )
+
+```{r}
+projAbs <- rprojroot::is_rstudio_project$find_file()    # project絕對路徑
+# dir(file.path(projAbs, "ml_fun"))    # 搜尋檔名
+source(file = file.path(projAbs, "ml_fun", "cfMxIndex.R"))
+source(file = file.path(projAbs, "ml_fun", "calculateAUC.R"))
+rm(projAbs)
+```
+
+```{r}
+load(file = "rda_mdlData_sea/sea_testD_2.Rda")
+load(file = "rda_result_sea/predSea_vote.Rda")
+```
+
+```{r}
+
+ref <- list()
+for (i in seq_along(list_testD_2)) {
+  ref[[i]] <- factor(
+    list_testD_2[[i]]$Y, levels = levels(pred_result[[1]])
+  )
+}
+
+rm(i)
+```
+
+## cf. mx.
+
+```{r}
+
+table(Predicted = pred_result[[1]], Actual = ref[[1]])
+
+table(Predicted = pred_result[[2]], Actual = ref[[2]])
+table(Predicted = pred_result[[3]], Actual = ref[[3]])
+
+table(Predicted = pred_result[[4]], Actual = ref[[4]])
+table(Predicted = pred_result[[5]], Actual = ref[[5]])
+
+```
+
+## index
+
+```{r}
+
+cfMx_base <- caret::confusionMatrix(
+  data = pred_result[[1]], reference = ref[[1]]
+)
+
+cfMx_bg <- caret::confusionMatrix(
+  data = pred_result[[2]], reference = ref[[2]]
+)
+
+cfMx_bp <- caret::confusionMatrix(
+  data = pred_result[[3]], reference = ref[[3]]
+)
+
+cfMx_bc <- caret::confusionMatrix(
+  data = pred_result[[4]], reference = ref[[4]]
+)
+
+cfMx_bi <- caret::confusionMatrix(
+  data = pred_result[[5]], reference = ref[[5]]
+)
+
+# 評估表
+cfMxIndex(cfMx_base, cfMx_bg, cfMx_bp, cfMx_bc, cfMx_bi, simple = T)
+
+```
+
+## AUC
+
+```{r}
+
+library(ROCR)
+
+calculateAUC(pred = pred_result[[1]], trueCon = ref[[1]])
+calculateAUC(pred = pred_result[[2]], trueCon = ref[[2]])
+calculateAUC(pred = pred_result[[3]], trueCon = ref[[3]])
+calculateAUC(pred = pred_result[[4]], trueCon = ref[[4]])
+calculateAUC(pred = pred_result[[5]], trueCon = ref[[5]])
+
+```
+
+## write csv
+
+```{r}
+
+library(dplyr)
+
+cfMxIndTab_sea <- cfMxIndex(
+  cfMx_base, cfMx_bg, cfMx_bp, cfMx_bc, cfMx_bi, 
+  simple = T
+)
+
+cfMxIndTab_sea %>%
+  mutate(
+    AUC = c(
+      calculateAUC(pred = pred_result[[1]], trueCon = ref[[1]]),
+      calculateAUC(pred = pred_result[[2]], trueCon = ref[[2]]),
+      calculateAUC(pred = pred_result[[3]], trueCon = ref[[3]]),
+      calculateAUC(pred = pred_result[[4]], trueCon = ref[[4]]),
+      calculateAUC(pred = pred_result[[5]], trueCon = ref[[5]])
+    )
+  ) ->
+  cfMxIndTab_sea
+
+write.csv(cfMxIndTab_sea, file = "blRsl_wPMDS_sea.csv", row.names = F)
+
+```
+
+
+
+

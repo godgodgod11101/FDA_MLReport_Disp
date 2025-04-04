@@ -1,0 +1,191 @@
+---
+title: "model building & prediction (date, seafood)"
+author: "jacky wang"
+date: "2021/6/8"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# package
+
+```{r}
+
+library(readxl)
+library(SOAR)
+
+# tidyverse
+library(readr)
+library(dplyr)
+library(stringr)
+library(purrr)
+library(lubridate)
+
+# machine learning
+library(caret)
+library(ROCR)
+
+# algorithm
+library(e1071)
+library(ranger)
+library(gbm)
+library(glmnet)
+library(C50)
+library(rpart)
+
+# my function
+projAbs <- rprojroot::is_rstudio_project$find_file()    # project絕對路徑
+funName <- dir(file.path(projAbs, "ml_fun/bagging"))    # 函數檔名
+funAbs <- file.path(projAbs, "ml_fun/bagging", funName)    # 函數絕對路徑
+map(funAbs, ~ source(.x))
+rm(projAbs, funName, funAbs)
+cat("\f")
+
+```
+
+
+
+# data import
+
+```{r}
+load(file = "rda_mdlData_sea/sea_trainD_1.Rda")
+load(file = "rda_mdlData_sea/sea_testD_1.Rda")
+```
+
+
+
+# predict
+
+```{r}
+
+pred_lgs <- map(list_trainD, ~{lgsRsl_bagging(trainD = .x, testD = testD)})
+pred_rpart <- map(list_trainD, ~{rpartRsl_bagging(trainD = .x, testD = testD)})
+pred_c50 <- map(list_trainD, ~{c50Rsl_bagging(trainD = .x, testD = testD)})
+pred_nb <- map(list_trainD, ~{nbRsl_bagging(trainD = .x, testD = testD)})
+pred_rf <- map(list_trainD, ~{rfRsl(trainD = .x, testD = testD)})
+pred_gbm <- map(list_trainD, ~{gbmRsl(trainD = .x, testD = testD)})
+pred_enet <- map(list_trainD, ~{enetRsl_bagging(trainD = .x, testD = testD)})
+
+```
+
+```{r}
+
+pred_result <- list()
+
+for (.i in seq_along(pred_rpart)) {
+  
+  pred_result[[.i]] <- data.frame(
+    lgs = pred_lgs[[.i]], 
+    rpart = pred_rpart[[.i]], 
+    c50 = pred_c50[[.i]], 
+    nb = pred_nb[[.i]], 
+    rf = pred_rf[[.i]], 
+    gbm = pred_gbm[[.i]], 
+    enet = pred_enet[[.i]]
+  ) %>% 
+    rowSums() %>% 
+    {ifelse(.>=4, "1", "0")} %>% 
+    factor(levels = c("1", "0"))
+}
+
+# rm(pred_lgs, pred_rpart, pred_c50, pred_nb, pred_rf, pred_gbm, pred_enet)
+
+```
+
+```{r}
+# save(pred_result, file = "rda_result_sea/sea_pred_dateSplit.Rda")
+```
+
+
+
+# result (start here! )
+
+```{r}
+projAbs <- rprojroot::is_rstudio_project$find_file()    # project絕對路徑
+# dir(file.path(projAbs, "ml_fun"))    # 搜尋檔名
+source(file = file.path(projAbs, "ml_fun", "cfMxIndex.R"))
+source(file = file.path(projAbs, "ml_fun", "calculateAUC.R"))
+rm(projAbs)
+```
+
+```{r}
+load(file = "rda_mdlData_sea/sea_testD_1.Rda")
+load(file = "rda_result_sea/sea_pred_dateSplit.Rda")
+```
+
+```{r}
+
+ref <- factor(
+  testD$Y, levels = levels(pred_result[[1]])
+)
+
+```
+
+## cf. mx.
+
+```{r}
+
+table(Predicted = pred_result[[1]], Actual = ref)
+table(Predicted = pred_result[[2]], Actual = ref)
+table(Predicted = pred_result[[3]], Actual = ref)
+
+```
+
+## index
+
+```{r}
+
+cfMx_all <- caret::confusionMatrix(
+  data = pred_result[[1]], reference = ref
+)
+
+cfMx_252 <- caret::confusionMatrix(
+  data = pred_result[[2]], reference = ref
+)
+
+cfMx_311 <- caret::confusionMatrix(
+  data = pred_result[[3]], reference = ref
+)
+
+# 評估表
+cfMxIndex(cfMx_all, cfMx_252, cfMx_311, simple = T)
+
+```
+
+## AUC
+
+```{r}
+
+library(ROCR)
+
+calculateAUC(pred = pred_result[[1]], trueCon = ref)
+calculateAUC(pred = pred_result[[2]], trueCon = ref)
+calculateAUC(pred = pred_result[[3]], trueCon = ref)
+
+```
+
+## write csv
+
+```{r}
+
+library(dplyr)
+
+cfMxIndTab <- cfMxIndex(cfMx_all, cfMx_252, cfMx_311, simple = T)
+cfMxIndTab %>%
+  mutate(
+    AUC = c(
+      calculateAUC(pred = pred_result[[1]], trueCon = ref),
+      calculateAUC(pred = pred_result[[2]], trueCon = ref),
+      calculateAUC(pred = pred_result[[3]], trueCon = ref)
+    )
+  ) ->
+  cfMxIndTab
+
+write.csv(cfMxIndTab, file = "sea_dateRsl.csv", row.names = F)
+
+```
+
+
+

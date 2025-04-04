@@ -1,0 +1,188 @@
+---
+title: "Data Process"
+author: "Jacky Wang"
+date: "2024-04-22"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+# package
+
+```{r}
+
+library(tibble)
+library(ggplot2)
+library(dplyr)
+
+library(moments)    # skewness
+library(caret)    # nzv
+
+```
+
+```{r}
+
+# 自訂函式
+projAbs <- rprojroot::is_rstudio_project$find_file()
+funFile <- dir("../ml_fun/process")
+
+for (x in funFile) {
+  source(
+    file = file.path(projAbs, "ml_fun/process", x), 
+    encoding = "utf-8"
+  )
+}
+
+rm(projAbs, funFile, x)
+```
+
+
+# import data
+
+```{r}
+load("mData_ret.rda")
+```
+
+```{r}
+
+skewness(tbl_all$資本額)
+
+# 資本額分佈
+# tbl_all |>    # native pipe operator 有功能限制
+#   ggplot(aes(x = 資本額)) +
+#   geom_histogram()
+
+```
+
+```{r}
+
+tbl_all$資本額 <- log(ifelse(tbl_all$資本額 == 0, 1, tbl_all$資本額))
+skewness(tbl_all$資本額)
+
+# 資本額分佈
+tbl_all |>    # native pipe operator 有功能限制
+  ggplot(aes(x = 資本額)) +
+  geom_histogram()
+
+
+tbl_all$營業縣市 <- sapply(tbl_all$營業縣市, county2region)
+
+```
+
+## NZV
+
+```{r}
+
+# 以訓練組計算次數比率
+tbl_train0 <- tbl_all %>% filter(稽查年度 < 2023)
+cutPt <- 95/5
+
+# nzv因子
+tbl_nzv <- tbl_train0 %>% 
+  nzvTbl(excluCol = c("稽查年度", "業者編號", "查獲逾期食品"), cutPt = cutPt)
+
+# 刪除nzv因子
+col_nzv <- tbl_nzv %>% 
+  filter(NearZeroVariance) %>% 
+  {.[[1]]}
+tbl_mData0 <- tbl_all %>% select(!all_of(col_nzv))
+
+rm(tbl_train0, cutPt, col_nzv)
+```
+
+## Numeric
+
+```{r}
+
+tbl_mData1 <- tibble(
+  `販售業次業別數` = tbl_mData0$販售業次業別數, 
+  `ln資本額` = tbl_mData0$資本額, 
+  `標章分數` = tbl_mData0$標章分數, 
+  `產品類別數` = tbl_mData0$產品類別數, 
+  `倉儲數` = tbl_mData0$倉儲數, 
+  `衛生管理人員數` = tbl_mData0$衛生管理人員數, 
+  `專技人員數` = tbl_mData0$專技人員數
+)
+
+```
+
+```{r}
+
+# tbl_mData1 %>% 
+#   ggplot(aes(x = 專技人員數)) + 
+#   geom_histogram()
+
+```
+
+## Factor
+
+```{r}
+
+excluN <- c(names(tbl_mData0)[1:3], names(tbl_mData1), "資本額")
+
+tbl_mData2 <- tbl_mData0 %>% 
+  select(!any_of(excluN))
+
+for (i in seq_along(tbl_mData2)) {
+  tbl_mData2[[i]] <- as.factor(tbl_mData2[[i]])
+}
+
+rm(excluN, i)
+```
+
+## combine
+
+```{r}
+tbl_mData <- cbind(tbl_mData0[1:3], tbl_mData1, tbl_mData2)
+
+rm(tbl_all, tbl_mData0, tbl_mData1, tbl_mData2)
+```
+
+
+# 欄位名稱改代號
+
+```{r}
+
+nOri <- names(tbl_mData)
+
+tbl_mData <- varNameConverter(
+  tbl_mData, "查獲逾期食品", c("稽查年度", "業者編號")
+)
+
+nX <- names(tbl_mData)
+
+tbl_vName <- tibble(
+  Origin = nOri, 
+  X = nX
+)
+
+rm(nOri, nX)
+```
+
+
+# train, test
+
+```{r}
+
+tbl_train <- tbl_mData %>% 
+  filter(稽查年度 < 2023)
+
+tbl_test <- tbl_mData %>% 
+  filter(稽查年度 == 2023)
+
+lst_ttData <- list(
+  nzv = tbl_nzv, 
+  train = tbl_train, 
+  test = tbl_test, 
+  vName = tbl_vName
+)
+
+# save(lst_ttData, file = "ttData.rda")
+```
+
+
+
+

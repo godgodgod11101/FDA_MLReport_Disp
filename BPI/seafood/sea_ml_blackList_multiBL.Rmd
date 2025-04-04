@@ -1,0 +1,233 @@
+---
+title: "model building & prediction (seafood, bGCI)"
+author: "jacky wang"
+date: "2021/6/15"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+
+# package
+
+```{r}
+
+library(readxl)
+library(SOAR)
+
+# tidyverse
+library(readr)
+library(dplyr)
+library(stringr)
+library(purrr)
+library(lubridate)
+
+# machine learning
+library(caret)
+library(ROCR)
+
+# algorithm
+library(e1071)
+library(ranger)
+library(gbm)
+library(glmnet)
+library(C50)
+library(rpart)
+
+# my function
+projAbs <- rprojroot::is_rstudio_project$find_file()    # project絕對路徑
+funName <- dir(file.path(projAbs, "ml_fun/bagging"))    # 函數檔名
+funAbs <- file.path(projAbs, "ml_fun/bagging", funName)    # 函數絕對路徑
+map(funAbs, ~ source(.x))
+rm(projAbs, funName, funAbs)
+cat("\f")
+
+```
+
+
+
+# data import
+
+```{r}
+load(file = "rda_mdlData_sea/sea_trainD_bGCI.Rda")
+load(file = "rda_mdlData_sea/sea_testD_bGCI.Rda")
+```
+
+
+
+# predict
+
+```{r}
+
+a <- Sys.time()
+
+pred_lgs <- lgsRsl_bagging(trainD = trainD_bGCI , testD = testD_bGCI)
+
+b <- Sys.time()
+c <- difftime(b, a, units = "sec") %>% floor() %>% as.numeric()
+glue::glue("耗時約 {c %/% 60} 分 {c %% 60} 秒")
+rm(a, b, c)
+
+```
+
+```{r}
+
+a <- Sys.time()
+
+pred_rpart <- rpartRsl_bagging(trainD = trainD_bGCI, testD = testD_bGCI)
+
+b <- Sys.time()
+c <- difftime(b, a, units = "sec") %>% floor() %>% as.numeric()
+glue::glue("耗時約 {c %/% 60} 分 {c %% 60} 秒")
+rm(a, b, c)
+
+```
+
+```{r}
+
+a <- Sys.time()
+
+pred_c50 <- c50Rsl_bagging(trainD = trainD_bGCI, testD = testD_bGCI)
+
+b <- Sys.time()
+c <- difftime(b, a, units = "sec") %>% floor() %>% as.numeric()
+glue::glue("耗時約 {c %/% 60} 分 {c %% 60} 秒")
+rm(a, b, c)
+
+```
+
+```{r}
+
+a <- Sys.time()
+
+pred_nb <- nbRsl_bagging(trainD = trainD_bGCI, testD = testD_bGCI)
+
+b <- Sys.time()
+c <- difftime(b, a, units = "sec") %>% floor() %>% as.numeric()
+glue::glue("耗時約 {c %/% 60} 分 {c %% 60} 秒")
+rm(a, b, c)
+
+```
+
+```{r}
+
+a <- Sys.time()
+
+pred_rf <- rfRsl(trainD = trainD_bGCI, testD = testD_bGCI)
+
+b <- Sys.time()
+c <- difftime(b, a, units = "sec") %>% floor() %>% as.numeric()
+glue::glue("耗時約 {c %/% 60} 分 {c %% 60} 秒")
+rm(a, b, c)
+
+```
+
+```{r}
+
+a <- Sys.time()
+
+pred_gbm <- gbmRsl(trainD = trainD_bGCI, testD = testD_bGCI)
+
+b <- Sys.time()
+c <- difftime(b, a, units = "sec") %>% floor() %>% as.numeric()
+glue::glue("耗時約 {c %/% 60} 分 {c %% 60} 秒")
+rm(a, b, c)
+
+```
+
+```{r}
+
+a <- Sys.time()
+
+pred_enet <- enetRsl_bagging(trainD = trainD_bGCI, testD = testD_bGCI)
+
+b <- Sys.time()
+c <- difftime(b, a, units = "sec") %>% floor() %>% as.numeric()
+glue::glue("耗時約 {c %/% 60} 分 {c %% 60} 秒")
+rm(a, b, c)
+
+```
+
+```{r}
+
+pred_result  <- data.frame(
+  lgs = pred_lgs, 
+  rpart = pred_rpart, 
+  c50 = pred_c50, 
+  nb = pred_nb, 
+  rf = pred_rf, 
+  gbm = pred_gbm, 
+  enet = pred_enet
+) %>% 
+  rowSums() %>% 
+  {ifelse(.>=4, "1", "0")} %>% 
+  factor(levels = c("1", "0"))
+
+rm(pred_lgs, pred_rpart, pred_c50, pred_nb, pred_rf, pred_gbm, pred_enet)
+
+```
+
+```{r}
+# save(pred_result, file = "rda_result_sea/predSea_bGCI.Rda")
+```
+
+
+
+# result (start here! )
+
+```{r}
+projAbs <- rprojroot::is_rstudio_project$find_file()    # project絕對路徑
+# dir(file.path(projAbs, "ml_fun"))    # 搜尋檔名
+source(file = file.path(projAbs, "ml_fun", "cfMxIndex.R"))
+source(file = file.path(projAbs, "ml_fun", "calculateAUC.R"))
+rm(projAbs)
+```
+
+```{r}
+load(file = "rda_mdlData_sea/sea_testD_bGCI.Rda")
+load(file = "rda_result_sea/predSea_bGCI.Rda")
+```
+
+```{r}
+
+ref <- factor(
+  testD_bGCI$Y, levels = levels(pred_result)
+)
+
+```
+
+## cf. mx.
+
+```{r}
+
+table(Predicted = pred_result, Actual = ref)
+
+```
+
+## index
+
+```{r}
+
+cfMx_bGCI <- caret::confusionMatrix(
+  data = pred_result, reference = ref
+)
+
+# 評估表
+cfMxIndex(cfMx_bGCI, simple = T)
+
+```
+
+## AUC
+
+```{r}
+
+library(ROCR)
+
+calculateAUC(pred = pred_result, trueCon = ref)
+
+```
+
+

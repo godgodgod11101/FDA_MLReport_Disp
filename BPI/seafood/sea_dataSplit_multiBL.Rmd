@@ -1,0 +1,75 @@
+---
+title: "split data & balance class (seafood, multi-bl)"
+author: "jacky wang"
+date: "2021/6/15"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+
+# package
+
+```{r}
+
+library(readxl)
+library(SOAR)
+
+# tidyverse
+library(readr)
+library(dplyr)
+library(stringr)
+library(purrr)
+library(lubridate)
+
+# blance class
+library(ROSE)
+
+```
+
+
+
+## data import
+
+```{r}
+load(file = "rda_mdlData_sea/sea_mdlData_pro_bGCI.Rda")
+```
+
+## split data
+
+```{r}
+
+trainD_bGCI <- mdlData_pro_bGCI %>% 
+  filter(受理日期 < ymd("2019-01-01")) %>% 
+  select(-受理日期)
+
+testD_bGCI <- mdlData_pro_bGCI %>% 
+  filter(受理日期 >= ymd("2019-01-01")) %>% 
+  select(-受理日期)
+
+```
+
+## blance class
+
+```{r}
+
+trainD_bGCI <- ROSE::ROSE(
+  Y~., data = trainD_bGCI, 
+  p = .3, 
+  seed = 7068
+) %>% 
+  .$data
+
+trainD_bGCI %>% filter(Y == "1") %>% nrow() / trainD_bGCI %>% nrow()
+
+```
+
+```{r}
+# save(trainD_bGCI, file = "rda_mdlData_sea/sea_trainD_bGCI.Rda")
+# save(testD_bGCI, file = "rda_mdlData_sea/sea_testD_bGCI.Rda")
+```
+
+

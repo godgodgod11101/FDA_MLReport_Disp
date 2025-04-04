@@ -1,0 +1,282 @@
+---
+title: "split data & balance class"
+author: "jacky wang"
+date: "2021/2/15"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# package
+
+```{r}
+
+library(readxl)
+library(SOAR)
+
+# tidyverse
+library(readr)
+library(dplyr)
+library(stringr)
+library(purrr)
+library(lubridate)
+
+# blance class
+library(ROSE)
+
+```
+
+
+
+# stage 1: dateSplit evaluation
+
+## data import
+
+```{r}
+load(file = "rda_mdlData_fru/fru_mdlData_pro_nb.Rda")
+```
+
+```{r}
+
+# nrow(mdlData_pro_nb)
+# nrow(filter(mdlData_pro_nb, Y == "1"))
+# nrow(filter(mdlData_pro_nb, Y == "1")) / nrow(mdlData_pro_nb)
+
+```
+
+
+## split data
+
+```{r}
+
+# train data
+trainD_all <- mdlData_pro_nb %>% 
+  filter(受理日期 < ymd("2019-01-01")) %>% 
+  select(-受理日期)
+
+trainD_252 <- mdlData_pro_nb %>% 
+  filter(受理日期>=ymd("2013-01-01") & 受理日期<ymd("2019-01-01")) %>% 
+  select(-受理日期)
+
+trainD_311 <- mdlData_pro_nb %>% 
+  filter(受理日期>=ymd("2014-07-03") & 受理日期<ymd("2019-01-01")) %>% 
+  select(-受理日期)
+
+# test data
+testD <- mdlData_pro_nb %>% 
+  filter(受理日期 >= ymd("2019-01-01")) %>% 
+  select(-受理日期)
+
+```
+
+### 實際資料筆數
+
+```{r}
+
+# # 不合格件數
+# trainD_all %>% filter(Y == "1") %>% nrow()
+# trainD_252 %>% filter(Y == "1") %>% nrow()
+# trainD_311 %>% filter(Y == "1") %>% nrow()
+# testD %>% filter(Y == "1") %>% nrow()
+# 
+# # 不合格率
+# trainD_all %>% filter(Y == "1") %>% nrow() / trainD_all %>% nrow()
+# trainD_252 %>% filter(Y == "1") %>% nrow() / trainD_252 %>% nrow()
+# trainD_311 %>% filter(Y == "1") %>% nrow() / trainD_311 %>% nrow()
+# testD %>% filter(Y == "1") %>% nrow() / testD %>% nrow()
+
+```
+
+## blance class
+
+```{r}
+
+list_trainD <- list()
+
+list_trainD$trainD_all <- ROSE::ROSE(
+  Y~., data = trainD_all,
+  p = .3, 
+  seed = 7068
+) %>% 
+  .$data
+
+list_trainD$trainD_252 <- ROSE::ROSE(
+  Y~., data = trainD_252,
+  p = .3, 
+  seed = 7068
+) %>% 
+  .$data
+
+list_trainD$trainD_311 <- ROSE::ROSE(
+  Y~., data = trainD_311,
+  p = .3, 
+  seed = 7068
+) %>% 
+  .$data
+
+```
+
+```{r}
+# save(list_trainD, file = "rda_mdlData_fru/fru_trainD_1.Rda")
+# save(testD, file = "rda_mdlData_fru/fru_testD_1.Rda")
+```
+
+
+
+# stage 2: black list evaluation
+
+## data import
+
+```{r}
+
+fName <- dir("rda_mdlData_fru")[stringr::str_detect(dir("rda_mdlData_fru"), "pro")]
+fPath <- file.path("rda_mdlData_fru", fName)
+lapply(fPath, load, .GlobalEnv)
+
+rm(fName, fPath)
+```
+
+## split data
+
+```{r}
+
+# nb
+trainD_nb <- mdlData_pro_nb %>% 
+  filter(受理日期 < ymd("2019-01-01")) %>% 
+  select(-受理日期)
+
+testD_nb <- mdlData_pro_nb %>% 
+  filter(受理日期 >= ymd("2019-01-01")) %>% 
+  select(-受理日期)
+
+# bp
+trainD_bp <- mdlData_pro_bp %>% 
+  filter(受理日期 < ymd("2019-01-01")) %>% 
+  select(-受理日期)
+
+testD_bp <- mdlData_pro_bp %>% 
+  filter(受理日期 >= ymd("2019-01-01")) %>% 
+  select(-受理日期)
+
+# bg
+trainD_bg <- mdlData_pro_bg %>% 
+  filter(受理日期 < ymd("2019-01-01")) %>% 
+  select(-受理日期)
+
+testD_bg <- mdlData_pro_bg %>% 
+  filter(受理日期 >= ymd("2019-01-01")) %>% 
+  select(-受理日期)
+
+# bgOld
+trainD_bgOld <- mdlData_pro_bgOld %>% 
+  filter(受理日期 < ymd("2019-01-01")) %>% 
+  select(-受理日期)
+
+testD_bgOld <- mdlData_pro_bgOld %>% 
+  filter(受理日期 >= ymd("2019-01-01")) %>% 
+  select(-受理日期)
+
+# bi
+trainD_bi <- mdlData_pro_bi %>% 
+  filter(受理日期 < ymd("2019-01-01")) %>% 
+  select(-受理日期)
+
+testD_bi <- mdlData_pro_bi %>% 
+  filter(受理日期 >= ymd("2019-01-01")) %>% 
+  select(-受理日期)
+
+# bc
+trainD_bc <- mdlData_pro_bc %>% 
+  filter(受理日期 < ymd("2019-01-01")) %>% 
+  select(-受理日期)
+
+testD_bc <- mdlData_pro_bc %>% 
+  filter(受理日期 >= ymd("2019-01-01")) %>% 
+  select(-受理日期)
+
+```
+
+## blance class
+
+```{r}
+
+list_trainD_2 <- list()
+
+list_trainD_2$trainD_nb <- ROSE::ROSE(
+  Y~., data = trainD_nb, 
+  p = .3, 
+  seed = 7068
+) %>% 
+  .$data
+
+list_trainD_2$trainD_bp <- ROSE::ROSE(
+  Y~., data = trainD_bp, 
+  p = .3, 
+  seed = 7068
+) %>% 
+  .$data
+
+list_trainD_2$trainD_bg <- ROSE::ROSE(
+  Y~., data = trainD_bg, 
+  p = .3, 
+  seed = 7068
+) %>% 
+  .$data
+
+list_trainD_2$trainD_bgOld <- ROSE::ROSE(
+  Y~., data = trainD_bgOld, 
+  p = .3, 
+  seed = 7068
+) %>% 
+  .$data
+
+list_trainD_2$trainD_bi <- ROSE::ROSE(
+  Y~., data = trainD_bi, 
+  p = .3, 
+  seed = 7068
+) %>% 
+  .$data
+
+list_trainD_2$trainD_bc <- ROSE::ROSE(
+  Y~., data = trainD_bc, 
+  p = .3, 
+  seed = 7068
+) %>% 
+  .$data
+
+```
+
+```{r}
+
+list_testD_2 <- list()
+
+list_testD_2$testD_nb <- testD_nb
+list_testD_2$testD_bp <- testD_bp
+list_testD_2$testD_bg <- testD_bg
+list_testD_2$testD_bgOld <- testD_bgOld
+list_testD_2$testD_bi <- testD_bi
+list_testD_2$testD_bc <- testD_bc
+
+```
+
+```{r}
+# save(list_trainD_2, file = "rda_mdlData_fru/fru_trainD_2.Rda")
+# save(list_testD_2, file = "rda_mdlData_fru/fru_testD_2.Rda")
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

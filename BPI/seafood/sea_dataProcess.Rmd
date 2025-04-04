@@ -1,0 +1,378 @@
+---
+title: "data process (seafood)"
+author: "jacky wang"
+date: "2021/6/7"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# package
+
+```{r}
+
+library(readxl)
+library(SOAR)
+
+# tidyverse
+library(readr)
+library(dplyr)
+library(stringr)
+library(purrr)
+library(lubridate)
+
+# my function
+projAbs <- rprojroot::is_rstudio_project$find_file()
+source(file = file.path(projAbs, "ml_fun", "varNameConverter.R"))
+rm(projAbs)
+
+```
+
+
+
+# data import
+
+```{r}
+
+load(file = "rda_mdlData_sea/seafood_train.Rda")
+load(file = "rda_mdlData_sea/seafood_test.Rda")
+
+# 合併資料
+mdlData_pro <- rbind(sea_trainRaw, sea_testRaw)
+rm(sea_trainRaw, sea_testRaw)
+
+```
+
+```{r}
+
+# 擷取部分資料
+mdlData_pro$受理日期 <- ymd(as.character(mdlData_pro$受理日期))
+mdlData_pro <- mdlData_pro %>% 
+  filter(受理日期 < ymd("2020-04-15")) %>% 
+  select(-簽審核准許可文件編號, -報單項次)
+
+# 由於擷取部分資料，先將原資料因子為factor全轉character，
+#   之後再轉回factor，以防因子有多的level。
+for (i in seq_along(mdlData_pro)) {
+  
+  if(
+    !str_detect(names(mdlData_pro)[[i]], pattern = "受理日期")
+  ){
+    mdlData_pro[[i]] <- as.character(mdlData_pro[[i]])
+  }
+}
+
+# 檢查因子 class
+# for (i in seq_along(mdlData_pro)) {
+#   class(mdlData_pro[[i]]) %>% print()
+# }
+
+rm(i)
+
+```
+
+
+
+# data processing
+**Code --> Rename in Scope --> 更改所有相同物件名稱**
+
+## 找NA
+
+```{r}
+
+# 排除生產國NA
+mdlData_pro <- mdlData_pro[!is.na(mdlData_pro$PROD_COUNTRY), ]
+
+# 標準化名稱NA改"其它"
+for (i in 1:nrow(mdlData_pro)) {
+  if (is.na(mdlData_pro$標準化名稱[[i]])) {
+    mdlData_pro$標準化名稱[[i]] <- "其它"
+  }
+}
+
+# 找、檢查
+# for (i in mdlData_pro) {
+#   is.na(i) %>% sum() %>% print()
+# }
+
+rm(i)
+
+```
+
+## 變數class轉factor
+
+```{r}
+
+for (i in seq_along(mdlData_pro)) {
+  
+  if(
+    str_detect(names(mdlData_pro)[[i]], pattern = "受理日期")
+  ){
+    mdlData_pro[[i]] <- lubridate::ymd(mdlData_pro[[i]])
+  } else{
+    mdlData_pro[[i]] <- as.factor(mdlData_pro[[i]])
+  }
+}
+
+rm(i)
+
+```
+
+## 建立黑名單因子
+
+### 產品
+
+```{r}
+
+df_count1 <- mdlData_pro %>% 
+  filter(檢驗不合格 == "1") %>% 
+  select(標準化名稱, 檢驗不合格) %>% 
+  group_by(標準化名稱, .drop = F) %>% 
+  tally()
+
+count1 <- df_count1[[2]]
+
+countAll <- mdlData_pro %>% 
+  select(標準化名稱, 檢驗不合格) %>% 
+  group_by(標準化名稱, .drop = F) %>% 
+  tally() %>% 
+  .[[2]]
+
+unqRate <- count1/countAll
+thr <- quantile(unqRate, .75)
+
+bl_prod <- df_count1 %>% 
+  mutate(
+    黑名單產品 = ifelse(unqRate > thr, 1, 0)
+  ) %>% 
+  select(-n)
+
+rm(df_count1, count1, countAll, unqRate, thr)
+
+```
+
+### 號列
+
+```{r}
+
+df_count1 <- mdlData_pro %>% 
+  filter(檢驗不合格 == "1") %>% 
+  select(CCC_CODE, 檢驗不合格) %>% 
+  group_by(CCC_CODE, .drop = F) %>% 
+  tally()
+
+count1 <- df_count1[[2]]
+
+countAll <- mdlData_pro %>% 
+  select(CCC_CODE, 檢驗不合格) %>% 
+  group_by(CCC_CODE, .drop = F) %>% 
+  tally() %>% 
+  .[[2]]
+
+unqRate <- count1/countAll
+thr <- quantile(unqRate, .75)
+
+bl_ccc <- df_count1 %>% 
+  mutate(
+    黑名單號列 = ifelse(unqRate > thr, 1, 0)
+  ) %>% 
+  select(-n)
+
+rm(df_count1, count1, countAll, unqRate, thr)
+
+```
+
+### 生產國
+
+```{r}
+
+df_count1 <- mdlData_pro %>% 
+  filter(檢驗不合格 == "1") %>% 
+  select(PROD_COUNTRY, 檢驗不合格) %>% 
+  group_by(PROD_COUNTRY, .drop = F) %>% 
+  tally()
+
+count1 <- df_count1[[2]]
+
+countAll <- mdlData_pro %>% 
+  select(PROD_COUNTRY, 檢驗不合格) %>% 
+  group_by(PROD_COUNTRY, .drop = F) %>% 
+  tally() %>% 
+  .[[2]]
+
+unqRate <- count1/countAll
+thr <- quantile(unqRate, .75)
+
+bl_country <- df_count1 %>% 
+  mutate(
+    黑名單生產國 = ifelse(unqRate > thr, 1, 0)
+  ) %>% 
+  select(-n)
+
+rm(df_count1, count1, countAll, unqRate, thr)
+
+```
+
+### 進口商
+
+```{r}
+
+df_count1 <- mdlData_pro %>% 
+  filter(檢驗不合格 == "1") %>% 
+  select(APPL_REGNO, 檢驗不合格) %>% 
+  group_by(APPL_REGNO, .drop = F) %>% 
+  tally()
+
+count1 <- df_count1[[2]]
+
+countAll <- mdlData_pro %>% 
+  select(APPL_REGNO, 檢驗不合格) %>% 
+  group_by(APPL_REGNO, .drop = F) %>% 
+  tally() %>% 
+  .[[2]]
+
+unqRate <- count1/countAll
+thr <- quantile(unqRate, .75)
+
+bl_imp <- df_count1 %>% 
+  mutate(
+    黑名單進口商 = ifelse(unqRate > thr, 1, 0)
+  ) %>% 
+  select(-n)
+
+rm(df_count1, count1, countAll, unqRate, thr)
+
+```
+
+### 串回資料
+
+```{r}
+
+mdlData_pro <- left_join(
+  x = mdlData_pro, y = bl_ccc, 
+  by = intersect(names(mdlData_pro), names(bl_ccc))
+) %>% 
+  left_join(
+    x = ., y = bl_prod, 
+    by = intersect(names(mdlData_pro), names(bl_prod))
+  ) %>% 
+  left_join(
+    x = ., y = bl_country, 
+    by = intersect(names(mdlData_pro), names(bl_country))
+  ) %>% 
+  left_join(
+    x = ., y = bl_imp, 
+    by = intersect(names(mdlData_pro), names(bl_imp))
+  )
+
+mdlData_pro <- mdlData_pro %>% 
+  select(-APPL_REGNO, -CCC_CODE, -PROD_COUNTRY, -標準化名稱)
+
+# 檢查資料有無NA
+# for (i in mdlData_pro) {
+#   is.na(i) %>% sum() %>% print()
+# }
+
+for (i in seq_along(mdlData_pro)) {
+  if (
+    str_detect(names(mdlData_pro)[[i]], "黑名單")
+  ) {
+    mdlData_pro[[i]] <- as.factor(mdlData_pro[[i]])
+  }
+}
+
+rm(i, bl_ccc, bl_prod, bl_country, bl_imp)
+
+```
+
+## 中文level轉英文
+
+```{r}
+
+# 找出含中文字之level
+list_varLevel <- map(mdlData_pro, ~levels(.x))
+
+map(
+  list_varLevel, ~{str_detect(.x, "[\u4E00-\u9FFF]") %>% sum()}
+) %>% 
+  unlist(use.names = F) %>% 
+  {ifelse(. > 0, yes = T, no = F)} %>% 
+  which()
+
+# 中文level轉英文
+levels(mdlData_pro[[10]]) <- c("0", "1", "Null")
+
+rm(list_varLevel)
+
+```
+
+## 變數名稱轉代數
+
+```{r}
+
+mdlData_pro_nb <- mdlData_pro %>% 
+  select(-contains("黑名單"))
+
+mdlData_pro_bg <- mdlData_pro %>% 
+  select(-黑名單產品, -黑名單生產國, -黑名單進口商)
+
+mdlData_pro_bp <- mdlData_pro %>% 
+  select(-黑名單號列, -黑名單生產國, -黑名單進口商)
+
+mdlData_pro_bc <- mdlData_pro %>% 
+  select(-黑名單產品, -黑名單號列, -黑名單進口商)
+
+mdlData_pro_bi <- mdlData_pro %>% 
+  select(-黑名單產品, -黑名單號列, -黑名單生產國)
+
+# 多個黑名單因子
+mdlData_pro_bGCI <- mdlData_pro %>% 
+  select(-黑名單產品)
+
+```
+
+```{r}
+
+mdlData_pro_nb <- varNameConverter(
+  mdlData_pro_nb, dep = "檢驗不合格", exclu = "受理日期"
+)
+
+mdlData_pro_bg <- varNameConverter(
+  mdlData_pro_bg, dep = "檢驗不合格", exclu = "受理日期"
+)
+
+mdlData_pro_bp <- varNameConverter(
+  mdlData_pro_bp, dep = "檢驗不合格", exclu = "受理日期"
+)
+
+mdlData_pro_bc <- varNameConverter(
+  mdlData_pro_bc, dep = "檢驗不合格", exclu = "受理日期"
+)
+
+mdlData_pro_bi <- varNameConverter(
+  mdlData_pro_bi, dep = "檢驗不合格", exclu = "受理日期"
+)
+
+# 多個黑名單因子
+mdlData_pro_bGCI <- varNameConverter(
+  mdlData_pro_bGCI, dep = "檢驗不合格", exclu = "受理日期"
+)
+
+```
+
+```{r}
+
+# save(mdlData_pro_nb, file = "rda_mdlData_sea/sea_mdlData_pro_nb.Rda")
+# save(mdlData_pro_bg, file = "rda_mdlData_sea/sea_mdlData_pro_bg.Rda")
+# save(mdlData_pro_bp, file = "rda_mdlData_sea/sea_mdlData_pro_bp.Rda")
+# save(mdlData_pro_bc, file = "rda_mdlData_sea/sea_mdlData_pro_bc.Rda")
+# save(mdlData_pro_bi, file = "rda_mdlData_sea/sea_mdlData_pro_bi.Rda")
+
+# 多個黑名單因子
+# save(mdlData_pro_bGCI, file = "rda_mdlData_sea/sea_mdlData_pro_bGCI.Rda")
+
+```
+
+

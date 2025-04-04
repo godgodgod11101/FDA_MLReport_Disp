@@ -1,0 +1,175 @@
+---
+title: "machine learning (date)"
+author: "jacky wang"
+date: "2021/2/15"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# package
+
+```{r}
+
+library(readxl)
+library(SOAR)
+
+# tidyverse
+library(readr)
+library(dplyr)
+library(stringr)
+library(purrr)
+library(lubridate)
+
+# machine learning
+library(caret)
+library(ROCR)
+
+# algorithm
+library(e1071)
+library(ranger)
+library(gbm)
+library(glmnet)
+library(C50)
+library(rpart)
+
+# my function
+projAbs <- rprojroot::is_rstudio_project$find_file()    # project絕對路徑
+# source(file = file.path(projAbs, "ml_fun", "glmRsl_simple.R"))
+# source(file = file.path(projAbs, "ml_fun", "rpartRsl_simple.R"))
+# source(file = file.path(projAbs, "ml_fun", "c50Rsl_simple.R"))
+# source(file = file.path(projAbs, "ml_fun", "nbRsl_simple.R"))
+# source(file = file.path(projAbs, "ml_fun", "rfRsl_simple.R"))
+# source(file = file.path(projAbs, "ml_fun", "gbmRsl_simple.R"))
+# source(file = file.path(projAbs, "ml_fun", "enetRsl_simple.R"))
+source(file = file.path(projAbs, "ml_fun", "cfMxIndex.R"))
+source(file = file.path(projAbs, "ml_fun", "calculateAUC.R"))
+rm(projAbs)
+
+```
+
+
+
+# data import
+
+```{r}
+load(file = "rda_mdlData_fru/fru_trainD_1.Rda")
+load(file = "rda_mdlData_fru/fru_testD_1.Rda")
+```
+
+
+
+# predict
+
+```{r}
+
+pred_glm <- map(list_trainD, ~{glmRsl_simple(trainD = .x, testD = testD)})
+pred_rpart <- map(list_trainD, ~{rpartRsl_simple(trainD = .x, testD = testD)})
+pred_c50 <- map(list_trainD, ~{c50Rsl_simple(trainD = .x, testD = testD)})
+pred_nb <- map(list_trainD, ~{nbRsl_simple(trainD = .x, testD = testD)})
+pred_rf <- map(list_trainD, ~{rfRsl_simple(trainD = .x, testD = testD, seed = 7068)})
+pred_gbm <- map(list_trainD, ~{gbmRsl_simple(trainD = .x, testD = testD, seed = 7068)})
+pred_enet <- map(list_trainD, ~{enetRsl_simple(trainD = .x, testD = testD, seed = 7068)})
+
+```
+
+```{r}
+
+pred_result <- list()
+
+for (.i in seq_along(pred_glm)) {
+  
+  pred_result[[.i]] <- data.frame(
+    glm = pred_glm[[.i]], 
+    rpart = pred_rpart[[.i]], 
+    c50 = pred_c50[[.i]], 
+    nb = pred_nb[[.i]], 
+    rf = pred_rf[[.i]], 
+    gbm = pred_gbm[[.i]], 
+    enet = pred_enet[[.i]]
+  ) %>% 
+    rowSums() %>% 
+    {ifelse(.>=4, "1", "0")} %>% 
+    factor(levels = c("1", "0"))
+}
+
+rm(pred_glm, pred_rpart, pred_c50, pred_nb, pred_rf, pred_gbm, pred_enet)
+
+```
+
+```{r}
+# save(pred_result, file = "rda_result_fru/fru_pred_dateSplit.Rda")
+```
+
+
+
+# result (start here! )
+
+```{r}
+load(file = "rda_mdlData_fru/fru_testD_1.Rda")
+load(file = "rda_result_fru/fru_pred_dateSplit.Rda")
+```
+
+## cf. mx.
+
+```{r}
+
+table(Predicted = pred_result[[1]], Actual = testD$Y)
+table(Predicted = pred_result[[2]], Actual = testD$Y)
+table(Predicted = pred_result[[3]], Actual = testD$Y)
+
+```
+
+## index
+
+```{r}
+
+cfMx_all <- caret::confusionMatrix(
+  data = pred_result[[1]], reference = testD$Y
+)
+
+cfMx_252 <- caret::confusionMatrix(
+  data = pred_result[[2]], reference = testD$Y
+)
+
+cfMx_311 <- caret::confusionMatrix(
+  data = pred_result[[3]], reference = testD$Y
+)
+
+# 評估表
+cfMxIndex(cfMx_all, cfMx_252, cfMx_311, simple = T)
+
+```
+
+## AUC
+
+```{r}
+
+calculateAUC(pred = pred_result[[1]], trueCon = testD$Y)
+calculateAUC(pred = pred_result[[2]], trueCon = testD$Y)
+calculateAUC(pred = pred_result[[3]], trueCon = testD$Y)
+
+```
+
+## write csv
+
+```{r}
+
+cfMxIndTab <- cfMxIndex(cfMx_all, cfMx_252, cfMx_311)
+cfMxIndTab %>% 
+  mutate(
+    AUC = c(
+      calculateAUC(pred = pred_result[[1]], trueCon = testD$Y), 
+      calculateAUC(pred = pred_result[[2]], trueCon = testD$Y), 
+      calculateAUC(pred = pred_result[[3]], trueCon = testD$Y)
+    )
+  ) -> 
+  cfMxIndTab
+
+write.csv(cfMxIndTab, file = "fru_dateRsl.csv", row.names = F)
+
+```
+
+

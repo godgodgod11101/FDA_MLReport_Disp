@@ -1,0 +1,275 @@
+---
+title: "machine learning (no h2o)"
+author: "jacky wang"
+date: "2021/2/15"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# package
+
+```{r}
+
+library(readxl)
+library(SOAR)
+
+# tidyverse
+library(readr)
+library(dplyr)
+library(stringr)
+library(purrr)
+
+# machine learning
+library(caret)
+library(ROCR)
+
+# algorithm
+library(e1071)
+library(ranger)
+library(gbm)
+library(glmnet)
+library(C50)
+library(rpart)
+
+# my function
+projAbs <- rprojroot::is_rstudio_project$find_file()    # project絕對路徑
+# source(file = file.path(projAbs, "ml_fun", "glmRsl_simple.R"))
+# source(file = file.path(projAbs, "ml_fun", "rpartRsl_simple.R"))
+# source(file = file.path(projAbs, "ml_fun", "c50Rsl_simple.R"))
+# source(file = file.path(projAbs, "ml_fun", "nbRsl_simple.R"))
+# source(file = file.path(projAbs, "ml_fun", "rfRsl_simple.R"))
+# source(file = file.path(projAbs, "ml_fun", "gbmRsl_simple.R"))
+# source(file = file.path(projAbs, "ml_fun", "enetRsl_simple.R"))
+source(file = file.path(projAbs, "ml_fun", "cfMxIndex.R"))
+source(file = file.path(projAbs, "ml_fun", "calculateAUC.R"))
+rm(projAbs)
+
+```
+
+
+
+# data import
+
+```{r}
+load(file = "rda_mdlData_fru/fru_trainD_2.Rda")
+load(file = "rda_mdlData_fru/fru_testD_2.Rda")
+```
+
+
+
+# predict
+
+```{r}
+
+pred_glm <- map(
+  seq_along(list_trainD_2), 
+  ~{glmRsl_simple(trainD = list_trainD_2[[.x]] , testD = list_testD_2[[.x]])}
+)
+
+pred_rpart <- map(
+  seq_along(list_trainD_2), 
+  ~{rpartRsl_simple(trainD = list_trainD_2[[.x]], testD = list_testD_2[[.x]])}
+)
+
+pred_c50 <- map(
+  seq_along(list_trainD_2), 
+  ~{c50Rsl_simple(trainD = list_trainD_2[[.x]], testD = list_testD_2[[.x]])}
+)
+
+pred_nb <- map(
+  seq_along(list_trainD_2), 
+  ~{nbRsl_simple(trainD = list_trainD_2[[.x]], testD = list_testD_2[[.x]])}
+)
+
+pred_rf <- map(
+  seq_along(list_trainD_2), 
+  ~{rfRsl_simple(trainD = list_trainD_2[[.x]], testD = list_testD_2[[.x]])}, 
+  seed = 7068
+)
+
+pred_gbm <- map(
+  seq_along(list_trainD_2), 
+  ~{gbmRsl_simple(trainD = list_trainD_2[[.x]], testD = list_testD_2[[.x]])}, 
+  seed = 7068
+)
+
+pred_enet <- map(
+  seq_along(list_trainD_2), 
+  ~{enetRsl_simple(trainD = list_trainD_2[[.x]], testD = list_testD_2[[.x]])}, 
+  seed = 7068
+)
+
+```
+
+```{r}
+
+pred_result <- list()
+
+for (.i in seq_along(pred_glm)) {
+  
+  pred_result[[.i]] <- data.frame(
+    glm = pred_glm[[.i]], 
+    rpart = pred_rpart[[.i]], 
+    c50 = pred_c50[[.i]], 
+    nb = pred_nb[[.i]], 
+    rf = pred_rf[[.i]], 
+    gbm = pred_gbm[[.i]], 
+    enet = pred_enet[[.i]]
+  ) %>% 
+    rowSums() %>% 
+    {ifelse(.>=4, "1", "0")} %>% 
+    factor(levels = c("1", "0"))
+}
+
+rm(pred_glm, pred_rpart, pred_c50, pred_nb, pred_rf, pred_gbm, pred_enet)
+
+```
+
+```{r}
+# save(pred_result, file = "rda_result_fru/fru_pred_blackList.Rda")
+```
+
+
+
+# result (start here! )
+
+```{r}
+load(file = "rda_mdlData_fru/fru_testD_2.Rda")
+load(file = "rda_result_fru/fru_pred_blackList.Rda")
+```
+
+## 黑名單產品
+
+### cf. mx.
+
+```{r}
+
+table(Predicted = pred_result[[1]], Actual = list_testD_2[[1]]$Y)
+table(Predicted = pred_result[[4]], Actual = list_testD_2[[4]]$Y)
+table(Predicted = pred_result[[3]], Actual = list_testD_2[[3]]$Y)
+table(Predicted = pred_result[[2]], Actual = list_testD_2[[2]]$Y)
+
+```
+
+### index
+
+```{r}
+
+cfMx_base <- caret::confusionMatrix(
+  data = pred_result[[1]], reference = list_testD_2[[1]]$Y
+)
+
+cfMx_bgOld <- caret::confusionMatrix(
+  data = pred_result[[4]], reference = list_testD_2[[4]]$Y
+)
+
+cfMx_bg <- caret::confusionMatrix(
+  data = pred_result[[3]], reference = list_testD_2[[3]]$Y
+)
+
+cfMx_bp <- caret::confusionMatrix(
+  data = pred_result[[2]], reference = list_testD_2[[2]]$Y
+)
+
+# 評估表
+cfMxIndex(cfMx_base, cfMx_bgOld, cfMx_bg, cfMx_bp, simple = T)
+
+```
+
+### AUC
+
+```{r}
+
+calculateAUC(pred = pred_result[[1]], trueCon = list_testD_2[[1]]$Y)
+calculateAUC(pred = pred_result[[4]], trueCon = list_testD_2[[4]]$Y)
+calculateAUC(pred = pred_result[[3]], trueCon = list_testD_2[[3]]$Y)
+calculateAUC(pred = pred_result[[2]], trueCon = list_testD_2[[2]]$Y)
+
+```
+
+### write csv
+
+```{r}
+
+cfMxIndTab_1 <- cfMxIndex(cfMx_base, cfMx_bgOld, cfMx_bg, cfMx_bp)
+cfMxIndTab_1 %>% 
+  mutate(
+    AUC = c(
+      calculateAUC(pred = pred_result[[1]], trueCon = list_testD_2[[1]]$Y), 
+      calculateAUC(pred = pred_result[[4]], trueCon = list_testD_2[[4]]$Y), 
+      calculateAUC(pred = pred_result[[3]], trueCon = list_testD_2[[3]]$Y), 
+      calculateAUC(pred = pred_result[[2]], trueCon = list_testD_2[[2]]$Y)
+    )
+  ) -> 
+  cfMxIndTab_1
+
+write.csv(cfMxIndTab_1, file = "fru_blRsl_prod.csv", row.names = F)
+
+```
+
+## 其它黑名單因子
+
+### cf. mx.
+
+```{r}
+
+table(Predicted = pred_result[[1]], Actual = list_testD_2[[1]]$Y)
+table(Predicted = pred_result[[5]], Actual = list_testD_2[[5]]$Y)
+table(Predicted = pred_result[[6]], Actual = list_testD_2[[6]]$Y)
+
+```
+
+### index
+
+```{r}
+
+cfMx_base <- caret::confusionMatrix(
+  data = pred_result[[1]], reference = list_testD_2[[1]]$Y
+)
+
+cfMx_bi <- caret::confusionMatrix(
+  data = pred_result[[5]], reference = list_testD_2[[5]]$Y
+)
+
+cfMx_bc <- caret::confusionMatrix(
+  data = pred_result[[6]], reference = list_testD_2[[6]]$Y
+)
+
+
+# 評估表
+cfMxIndex(cfMx_base, cfMx_bi, cfMx_bc, simple = T)
+
+```
+
+### AUC
+
+```{r}
+
+calculateAUC(pred = pred_result[[1]], trueCon = list_testD_2[[1]]$Y)
+calculateAUC(pred = pred_result[[5]], trueCon = list_testD_2[[5]]$Y)
+calculateAUC(pred = pred_result[[6]], trueCon = list_testD_2[[6]]$Y)
+
+```
+
+### write csv
+
+```{r}
+
+cfMxIndTab_2 <- cfMxIndex(cfMx_base, cfMx_bi, cfMx_bc)
+cfMxIndTab_2 %>% 
+  mutate(
+    AUC = c(
+      calculateAUC(pred = pred_result[[1]], trueCon = list_testD_2[[1]]$Y), 
+      calculateAUC(pred = pred_result[[5]], trueCon = list_testD_2[[5]]$Y), 
+      calculateAUC(pred = pred_result[[6]], trueCon = list_testD_2[[6]]$Y)
+    )
+  ) -> 
+  cfMxIndTab_2
+
+write.csv(cfMxIndTab_2, file = "fru_blRsl_other.csv", row.names = F)
+
+```
+
